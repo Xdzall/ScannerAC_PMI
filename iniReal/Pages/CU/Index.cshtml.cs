@@ -164,11 +164,10 @@ namespace iniReal.Pages.CU
 
         public async Task<IActionResult> OnPostAsync()
         {
-            // 1. Bagian validasi input awal (tetap sama)
+            // 1. Bagian validasi input
             string serialNumInput = Request.Form["SerialNum"];
             string operatInput = Request.Form["OP"];
             string prodPlanInput = Request.Form["PP"];
-            //string targetUnitInput = Request.Form["TU"];
             string idleInput = Request.Form["IT"];
 
             if (!string.IsNullOrEmpty(serialNumInput) && serialNumInput.Contains("ERROR"))
@@ -185,11 +184,13 @@ namespace iniReal.Pages.CU
                 }
             }
 
-            if (serialNumInput?.Length != 10 && serialNumInput?.Length != 11 && serialNumInput?.Length != 21)
+            // UPDATE: Menambahkan panjang 23 ke dalam validasi agar contoh SN Anda bisa masuk
+            if (serialNumInput?.Length != 10 && serialNumInput?.Length != 11 && serialNumInput?.Length != 21 && serialNumInput?.Length != 23)
             {
-                TempData["ErrorMessage"] = "Serial Number Tidak valid";
+                TempData["ErrorMessage"] = "Serial Number Tidak valid (Panjang: " + serialNumInput?.Length + ")";
                 return RedirectToPage();
             }
+
             iniUser.SN_GOOD = string.IsNullOrEmpty(serialNumInput) ? null : serialNumInput;
             if (string.IsNullOrEmpty(iniUser.SN_GOOD))
             {
@@ -206,11 +207,6 @@ namespace iniReal.Pages.CU
                 TempData["ErrorMessage"] = "Jumlah Production Plan Tidak Boleh Kosong";
                 return RedirectToPage();
             }
-            //if (!decimal.TryParse(targetUnitInput, out decimal targetUnitValue) || targetUnitValue < 0)
-            //{
-            //    TempData["ErrorMessage"] = "SUT Negative";
-            //    return RedirectToPage();
-            //}
 
             try
             {
@@ -218,25 +214,38 @@ namespace iniReal.Pages.CU
                 {
                     await connection.OpenAsync();
 
-                    // 2. Logika untuk mendapatkan detail produk (tetap sama)
+                    // 2. Logika untuk mendapatkan detail produk (DIPERBARUI)
+                    // Menambahkan logika pencarian berdasarkan karakter ke-7 s.d 11
                     string selectDataSql = @"
-                SELECT TOP 1 Product_Id, MachineCode, SUT FROM Masterdata
-                WHERE MachineCode = @MachineCode AND
-                      (Product_Id LIKE @SerialNumPrefix7 + '%' OR
-                       Product_Id LIKE @SerialNumPrefix5 + '%' OR
-                       Product_Id = @SerialNumPrefix3)
-                ORDER BY CASE
-                    WHEN Product_Id LIKE @SerialNumPrefix7 + '%' THEN 1
-                    WHEN Product_Id LIKE @SerialNumPrefix5 + '%' THEN 2
-                    WHEN Product_Id = @SerialNumPrefix3 THEN 3
-                    ELSE 4
-                END;";
+        SELECT TOP 1 Product_Id, MachineCode, SUT FROM Masterdata
+        WHERE MachineCode = @MachineCode AND
+              (Product_Id LIKE @EmbeddedPrefix + '%' OR -- Logika Baru
+               Product_Id LIKE @SerialNumPrefix7 + '%' OR
+               Product_Id LIKE @SerialNumPrefix5 + '%' OR
+               Product_Id = @SerialNumPrefix3)
+        ORDER BY CASE
+            WHEN Product_Id LIKE @EmbeddedPrefix + '%' THEN 1 -- Prioritas Utama
+            WHEN Product_Id LIKE @SerialNumPrefix7 + '%' THEN 2
+            WHEN Product_Id LIKE @SerialNumPrefix5 + '%' THEN 3
+            WHEN Product_Id = @SerialNumPrefix3 THEN 4
+            ELSE 5
+        END;";
 
                     int SUT = 0;
                     using (SqlCommand selectDataCommand = new SqlCommand(selectDataSql, connection))
                     {
                         string serialNum = iniUser.SN_GOOD;
+
+                        // LOGIKA BARU: Ambil karakter ke-7 sampai 11 (index 6, panjang 5)
+                        // Contoh: 140202BFDCW7225CD000002 => Ambil "BFDCW"
+                        string embeddedPrefix = "";
+                        if (serialNum.Length >= 11)
+                        {
+                            embeddedPrefix = serialNum.Substring(6, 5);
+                        }
+
                         selectDataCommand.Parameters.AddWithValue("@MachineCode", MachineCode);
+                        selectDataCommand.Parameters.AddWithValue("@EmbeddedPrefix", embeddedPrefix); // Parameter Baru
                         selectDataCommand.Parameters.AddWithValue("@SerialNumPrefix7", serialNum.Length >= 7 ? serialNum.Substring(0, 7) : serialNum);
                         selectDataCommand.Parameters.AddWithValue("@SerialNumPrefix5", serialNum.Length >= 5 ? serialNum.Substring(0, 5) : serialNum);
                         selectDataCommand.Parameters.AddWithValue("@SerialNumPrefix3", serialNum.Length >= 3 ? serialNum.Substring(0, 3) : serialNum);
@@ -247,8 +256,6 @@ namespace iniReal.Pages.CU
                             {
                                 iniUser.Product_Id = dataReader.GetString(0);
                                 iniUser.MachineCode = dataReader.GetString(1);
-                                // Ambil SUT langsung dari query ini jika tersedia
-                                // SUT = dataReader.GetInt32(2); 
                             }
                         }
                     }
@@ -262,19 +269,18 @@ namespace iniReal.Pages.CU
                         if (sutResult != null) SUT = (int)sutResult;
                     }
 
+                    // --- BAGIAN BAWAH TETAP SAMA SEPERTI KODE ASLI ---
                     int cycleTime = (operatValue > 0) ? (SUT * 60 / operatValue) : 0;
-
                     decimal idleValue = 0;
 
-                    // Ambil waktu produk terakhir dari tabel OEESN
                     DateTime currentProductTime = DateTime.Now;
                     DateTime previousProductTime = currentProductTime;
 
                     string sql = @"
-                    SELECT TOP 1 SDate 
-                    FROM OEESN
-                    WHERE MachineCode = @MachineCode
-                    ORDER BY SDate DESC";
+            SELECT TOP 1 SDate 
+            FROM OEESN
+            WHERE MachineCode = @MachineCode
+            ORDER BY SDate DESC";
 
                     using (SqlCommand command = new SqlCommand(sql, connection))
                     {
@@ -287,30 +293,18 @@ namespace iniReal.Pages.CU
                         }
                     }
 
-                    // Hitung selisih waktu antar produk
                     TimeSpan idleDuration = currentProductTime - previousProductTime;
 
-                    // Hanya proses losstime jika jeda kurang dari 2 jam
                     if (idleDuration.TotalHours > 0 && idleDuration.TotalHours <= 2)
                     {
-                        // Hitung waktu downtime bersih (Gross Time - Waktu Istirahat)
                         double netDowntimeSeconds = CalculateNetDowntimeSeconds(previousProductTime, currentProductTime);
-
-                        // Tentukan toleransi (misal 5x Cycle Time)
                         double toleranceSeconds = SUT * 5;
 
-                        // --- PERBAIKAN DI SINI ---
-                        // Gunakan netDowntimeSeconds (waktu bersih) untuk pengecekan, BUKAN idleDuration (waktu kotor)
                         if (netDowntimeSeconds > toleranceSeconds)
                         {
                             DateTime tentativeLossStart = SkipRestTime(previousProductTime.AddSeconds(toleranceSeconds));
-
                             DateTime lossEndTime = currentProductTime;
-
-                            // --- PERBAIKAN PERHITUNGAN DURASI ---
-                            // Actual Loss adalah Waktu Bersih dikurangi Toleransi yang diberikan
                             double actualLossSeconds = netDowntimeSeconds - toleranceSeconds;
-
                             double pureLossSeconds = CalculateNetDowntimeSeconds(tentativeLossStart, lossEndTime);
 
                             if (pureLossSeconds > 0)
@@ -321,16 +315,12 @@ namespace iniReal.Pages.CU
                                     lossEndTime,
                                     pureLossSeconds
                                 );
-
                                 idleValue = (decimal)toleranceSeconds;
                             }
-
-                            // Set idleValue untuk disimpan ke OEESN (Opsional: simpan tolerance atau full net time)
                             idleValue = (decimal)(toleranceSeconds);
                         }
                         else
                         {
-                            // Jika Net Downtime < Toleransi (artinya waktu habis hanya dipakai istirahat), tidak dianggap Loss
                             Console.WriteLine($"[INFO] Net Idle ({netDowntimeSeconds} detik) < Toleransi. Terpotong waktu istirahat.");
                             idleValue = (decimal)(netDowntimeSeconds);
                         }
@@ -340,51 +330,10 @@ namespace iniReal.Pages.CU
                         Console.WriteLine($"[DEBUG] IdleDuration di luar batas (lebih dari 2 jam): {idleDuration.TotalHours} jam");
                     }
 
-                    //// Hitung selisih waktu antar produk
-                    //TimeSpan idleDuration = currentProductTime - previousProductTime;
-
-                    //// Hanya proses losstime jika jeda kurang dari 2 jam (untuk menghindari jeda antar shift)
-                    //if (idleDuration.TotalHours > 0 && idleDuration.TotalHours <= 2)
-                    //{
-                    //    double netDowntimeSeconds = CalculateNetDowntimeSeconds(previousProductTime, currentProductTime);
-                    //    decimal aftTime = (decimal)(netDowntimeSeconds - (SUT * 5));
-
-                    //    if (aftTime > 0)
-                    //    {
-                    //        double toleranceSeconds = SUT * 5; // batas waktu normal sebelum dianggap loss
-                    //        double totalIdleSeconds = idleDuration.TotalSeconds;
-
-                    //        // Jika selisih antar produk melebihi batas toleransi, catat loss
-                    //        if (totalIdleSeconds > toleranceSeconds)
-                    //        {
-                    //            DateTime lossStartTime = previousProductTime.AddSeconds(toleranceSeconds);
-                    //            DateTime lossEndTime = currentProductTime;
-                    //            double actualLossSeconds = (lossEndTime - lossStartTime).TotalSeconds;
-
-                    //            await _lossTimeService.LogUnassignedLossTimeAsync(
-                    //                MachineCode, lossStartTime, lossEndTime, actualLossSeconds
-                    //            );
-
-                    //            idleValue = (decimal)(toleranceSeconds);
-                    //        }
-                    //        else
-                    //        {
-                    //            Console.WriteLine($"[INFO] Idle only ({totalIdleSeconds} detik < {toleranceSeconds} detik) — tidak tercatat sebagai loss.");
-                    //            idleValue = (decimal)(totalIdleSeconds);
-                    //        }
-                    //    }
-
-                    //}
-                    //else
-                    //{
-                    //    Console.WriteLine($"[DEBUG] IdleDuration di luar batas (lebih dari 2 jam): {idleDuration.TotalHours} jam");
-                    //}
-
-
                     string insertUserQrSql = @"INSERT INTO OEESN (Date, SDate, EndDate, ProductTime, TotalDownTime, TargetUnit, GoodUnit, EjectUnit, TotalUnit, OEE, 
-                                           Availability, Performance, Quality, CycleTime, MachineCode, Product_Id, NoOfOperator, P_Target, P_Actual, IdleTime, SN_GOOD) 
-                                           VALUES (@Date, @SDate, @EndDate, @ProductTime, @TotalDownTime, @TargetUnit, @GoodUnit, @EjectUnit, (@GoodUnit + @EjectUnit), @OEE, 
-                                           @Availability, @Performance, @Quality, @CycleTime, @MachineCode, @Product_Id, @NoOfOperator, @P_Target, @P_Actual, @IdleTime, @SN_GOOD);";
+                                   Availability, Performance, Quality, CycleTime, MachineCode, Product_Id, NoOfOperator, P_Target, P_Actual, IdleTime, SN_GOOD) 
+                                   VALUES (@Date, @SDate, @EndDate, @ProductTime, @TotalDownTime, @TargetUnit, @GoodUnit, @EjectUnit, (@GoodUnit + @EjectUnit), @OEE, 
+                                   @Availability, @Performance, @Quality, @CycleTime, @MachineCode, @Product_Id, @NoOfOperator, @P_Target, @P_Actual, @IdleTime, @SN_GOOD);";
 
                     using (SqlCommand insertUserQrCommand = new SqlCommand(insertUserQrSql, connection))
                     {
@@ -400,16 +349,11 @@ namespace iniReal.Pages.CU
                         {
                             calculatedTargetUnit = Math.Floor((decimal)effectiveWorkingSeconds / SUT);
                         }
-                        //if (calculatedTargetUnit > prodPlanValue)
-                        //{
-                        //    calculatedTargetUnit = prodPlanValue;
-                        //}
 
                         int dataAddedToday = CountDataAddedToday(connection);
                         int ejectUnit = 0;
                         int totalUnit = dataAddedToday + ejectUnit;
                         decimal performance = (calculatedTargetUnit > 0) ? ((decimal)totalUnit / calculatedTargetUnit) * 100 : 0;
-                        //decimal performance = (targetUnitValue > 0) ? (totalUnit / targetUnitValue) * 100 : 0;
                         decimal quality = (totalUnit > 0) ? (decimal)dataAddedToday / totalUnit * 100 : 0;
                         decimal p_actual = (cycleTime > 0) ? 3600m / (cycleTime * 1000m) : 0;
 
@@ -419,7 +363,6 @@ namespace iniReal.Pages.CU
                         insertUserQrCommand.Parameters.AddWithValue("@ProductTime", SUT);
                         insertUserQrCommand.Parameters.AddWithValue("@TotalDownTime", 0);
                         insertUserQrCommand.Parameters.AddWithValue("@TargetUnit", calculatedTargetUnit);
-                        //insertUserQrCommand.Parameters.AddWithValue("@TargetUnit", targetUnitValue);
                         insertUserQrCommand.Parameters.AddWithValue("@GoodUnit", dataAddedToday);
                         insertUserQrCommand.Parameters.AddWithValue("@EjectUnit", ejectUnit);
                         insertUserQrCommand.Parameters.AddWithValue("@OEE", 0);
@@ -434,7 +377,6 @@ namespace iniReal.Pages.CU
                         insertUserQrCommand.Parameters.AddWithValue("@P_Actual", p_actual);
                         insertUserQrCommand.Parameters.AddWithValue("@IdleTime", idleValue);
                         insertUserQrCommand.Parameters.AddWithValue("@SN_GOOD", iniUser.SN_GOOD);
-                        // insertUserQrCommand.Parameters.AddWithValue("@ProdPlan", prodPlanValue);
 
                         await insertUserQrCommand.ExecuteNonQueryAsync();
                     }
@@ -456,15 +398,17 @@ namespace iniReal.Pages.CU
                                 string currentsn;
                                 string previoussn;
 
-                                if (serialnumbers[0].Length == 21 && serialnumbers[1].Length == 21)
+                                if (serialnumbers[0].Length >= 21 && serialnumbers[1].Length >= 21)
                                 {
-                                    currentsn = serialnumbers[0].Substring(8);
-                                    previoussn = serialnumbers[1].Substring(8);
+                                    // Mengambil 6 digit terakhir untuk cek urutan
+                                    currentsn = serialnumbers[0].Substring(serialnumbers[0].Length - 6);
+                                    previoussn = serialnumbers[1].Substring(serialnumbers[1].Length - 6);
                                     if (!IsSnSequential(currentsn, previoussn))
                                     {
                                         TempData["errormessage"] = "Serial Number tidak Berurutan";
                                     }
                                 }
+                                // Fallback logic lama
                                 else if (serialnumbers[0].Substring(0, 1).Equals('F') && serialnumbers[1].Substring(0, 1).Equals('F') || serialnumbers[0].Substring(0, 1).Equals('f') && serialnumbers[1].Substring(0, 1).Equals('f'))
                                 {
                                     currentsn = serialnumbers[0].Substring(1);
@@ -486,7 +430,7 @@ namespace iniReal.Pages.CU
                             }
                         }
                     }
-                    //nanti update LossTime disini
+
                     string dataWaktuSNTerbaru = @"SELECT TOP 2 SDate FROM OEESN WHERE SN_GOOD LIKE LEFT(@SN_GOOD, 5)+'%' AND MachineCode = @MachineCode ORDER BY SDate DESC;";
                     using (SqlCommand commandWaktuSNTerbaru = new SqlCommand(dataWaktuSNTerbaru, connection))
                     {
@@ -504,33 +448,26 @@ namespace iniReal.Pages.CU
                             {
                                 WaktuSkrg = WaktuBaru[0];
                                 WaktuLoss = WaktuBaru[1];
-
-
-
                             }
                         }
                     }
-
                 }
                 return RedirectToPage();
             }
             catch (SqlException ex)
             {
-                // Tangkap error spesifik untuk pelanggaran UNIQUE constraint (data duplikat)
                 if (ex.Number == 2627 || ex.Number == 2601)
                 {
                     TempData["ErrorMessage"] = "Serial Number Sudah Ada (dicek oleh database).";
                 }
                 else
                 {
-                    // Tangani error database lainnya
                     TempData["ErrorMessage"] = "Terjadi error database: " + ex.Message;
                 }
                 return RedirectToPage();
             }
             catch (Exception ex)
             {
-                // Tangani error umum lainnya yang mungkin terjadi
                 TempData["ErrorMessage"] = "Terjadi kesalahan: " + ex.Message;
                 return RedirectToPage();
             }

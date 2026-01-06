@@ -1,0 +1,11 @@
+﻿@page
+@using LossTimeComponent
+@model iniReal.Pages.LossTimeManagementModel
+@{
+    ViewData["Title"] = "Loss Time Management";
+}
+
+<h1>@ViewData["Title"]</h1>
+@Html.AntiForgeryToken()
+@* Ini adalah cara memanggil komponen Blazor dari Razor Page *@
+<component type="typeof(LossTimeDashboard)" render-mode="ServerPrerendered" param-LossEvents="Model.LossEvents" />

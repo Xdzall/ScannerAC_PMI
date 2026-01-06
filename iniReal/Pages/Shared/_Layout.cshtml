@@ -1,0 +1,108 @@
+﻿@{
+    string routePath = Context.Request.Path.ToString().ToLower();
+}
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Scanner</title>
+    <link rel="stylesheet" href="~/lib/bootstrap/dist/css/bootstrap.min.css" />
+    <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
+    <link rel="stylesheet" href="~/iniReal.styles.css" asp-append-version="true" />
+</head>
+<body>
+    <div class="wrapper">
+        <!-- Sidebar -->
+        <nav id="sidebar">
+            <div class="d-flex justify-content-center align-items-center m-3">
+                <img src="~/Assets/user.png" alt="Logo" class="logo-img rounded-circle" style="max-width:100px; height:100px">
+            </div>
+
+            <div class="sidebar-header d-flex justify-content-center align-items-center">
+                <h4>User</h4>
+            </div>
+
+            <div class="sidebar-header d-flex justify-content-center align-items-center">
+                <p>Username</p>
+            </div>
+
+            <div class="sidebar-header d-flex justify-content-center align-items-center">
+                <ul class="list-unstyled components" style="position:absolute; bottom: 0;">
+                    @* <li> 
+                        <a href="/Scanner/LossTimeManagement" class="btn btn-secondary mb-2" style="font-size:16px; width: 150px;">
+                            Manage Loss (Semua)
+                        </a>
+                    </li>*@
+
+                    <li>
+                        <a href="/Scanner/Scanner/LossTimeCU" class="btn btn-light mb-2" style="font-size:16px; width: 150px;">
+                            Manage Loss (CU)
+                        </a>
+                    </li>
+                    <li>
+                        <a href="/Scanner/Scanner/LossTimeCS" class="btn btn-light mb-2" style="font-size:16px; width: 150px;">
+                            Manage Loss (CS)
+                        </a>
+                    </li>
+                    <li>
+                        <button type="button" class="btn btn-light mb-4" data-bs-toggle="button" style="font-size:16px; width: 150px;" autocomplete="off">Filter Date Time</button>
+                    </li>
+                    <li>
+                        <button type="button" class="btn btn-light mb-2" disabled data-bs-toggle="button" style="font-size:16px; width: 150px;" autocomplete="off">Daily Schedule</button>
+                    </li>
+                    <li>
+                        <button type="button" class="btn btn-light mb-2" disabled data-bs-toggle="button" style="font-size:16px; width: 150px;" autocomplete="off">Logout</button>
+                    </li>
+                    <li>
+                        <button type="button" class="btn btn-light mb-2"  data-bs-toggle="button" style="font-size:16px; width: 150px;" autocomplete="off">Login</button>
+                    </li>
+                    @if (routePath?.Contains("cu") == true)
+                    {
+                        <li>
+                            <button type="button" class="btn btn-primary" data-bs-toggle="modal" style="font-size:16px; width: 150px;" data-bs-target="#CUProductionModal">
+                                Produksi CU
+                            </button>
+                        </li>
+                    }
+
+                    @if (routePath?.Contains("cs")== true)
+                    {
+                        <li>
+                            <!-- Button trigger modal -->
+                            <button type="button" class="btn btn-primary" data-bs-toggle="modal" style="font-size:16px; width: 150px;" data-bs-target="#CSProductionModal">
+                                Produksi CS
+                            </button>
+                        </li>
+                    }
+                </ul>
+            </div>
+
+           
+        </nav>
+
+        <!-- Page Content -->
+        <div id="content">
+            <div class="container-fluid">
+                <div class="row">
+                    <div class="col-md-12">
+                        <div class="d-flex justify-content-end mb-3">
+                            <img src="~/Assets/logo.png" alt="Logo" class="logo-img" style="max-width:250px; height:auto">
+                        </div>
+                        <main role="main" class="pb-1 mt-0">
+                            @RenderBody()
+                        </main>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="~/lib/jquery/dist/jquery.min.js"></script>
+    <script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="~/js/site.js" asp-append-version="true"></script>
+
+    @await RenderSectionAsync("Scripts", required: false)
+</body>
+</html>

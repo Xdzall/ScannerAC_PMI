@@ -1,0 +1,17 @@
+﻿@page "/Scanner/LossTimeCU"
+@model iniReal.Pages.Scanner.LossTimeCUModel
+@{
+    ViewData["Title"] = "CU Loss Time Management";
+}
+
+<h2>Unassigned Loss Time Line CU</h2>
+
+<div class="container-fluid mt-3">
+
+    <component type="typeof(LossTimeComponent.LossTimeDashboard)" 
+           render-mode="Static" 
+           param-LossEvents="Model.LossEvents" 
+           param-PostBackUrl="@("/Scanner/Scanner/LossTimeCU")" />
+
+
+</div>
